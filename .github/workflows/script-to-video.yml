@@ -1,0 +1,95 @@
+name: Script to Video
+
+# Drop a .txt script into video-agent/scripts/ and push - the finished MP4 is
+# attached to the workflow run as a downloadable artifact. You can also run it
+# by hand from the Actions tab with custom options.
+on:
+  push:
+    paths:
+      - "video-agent/scripts/**.txt"
+      - "video-agent/scripts/**.md"
+  workflow_dispatch:
+    inputs:
+      script:
+        description: "Script path (relative to video-agent/)"
+        required: true
+        default: "scripts/sersi-couture-promo.txt"
+      aspect:
+        description: "Aspect ratio"
+        type: choice
+        options: ["16:9", "9:16", "1:1", "4:5"]
+        default: "9:16"
+      voice:
+        description: "Voice provider"
+        type: choice
+        options: ["auto", "elevenlabs", "gtts", "espeak", "silent"]
+        default: "auto"
+      style:
+        description: "Style / brand notes for the AI director (optional)"
+        required: false
+        default: "Luxury bespoke fashion, warm gold and deep green tones, elegant and cinematic"
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: video-agent
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+      ELEVENLABS_VOICE_ID: ${{ vars.ELEVENLABS_VOICE_ID }}
+      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: video-agent/requirements.txt
+
+      - name: Install ffmpeg and fonts
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core espeak-ng
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Pick scripts to render
+        id: pick
+        env:
+          INPUT_SCRIPT: ${{ inputs.script }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            printf '%s\n' "$INPUT_SCRIPT" > ../scripts.list
+          else
+            git diff --name-only --diff-filter=AM "$BEFORE_SHA" HEAD -- scripts/ 2>/dev/null \
+              | sed 's#^video-agent/##' > ../scripts.list || true
+            [ -s ../scripts.list ] || ls scripts/*.txt scripts/*.md 2>/dev/null > ../scripts.list || true
+          fi
+          echo "Rendering:"; cat ../scripts.list
+
+      - name: Render videos
+        env:
+          ASPECT: ${{ inputs.aspect || '9:16' }}
+          VOICE: ${{ inputs.voice || 'auto' }}
+          STYLE: ${{ inputs.style || 'Luxury bespoke fashion, warm gold and deep green tones, elegant and cinematic' }}
+        run: |
+          mkdir -p output/final
+          while IFS= read -r script; do
+            [ -n "$script" ] || continue
+            name="$(basename "${script%.*}")"
+            python -m script2video "$script" --aspect "$ASPECT" --voice "$VOICE" --style "$STYLE" \
+              --out "output/final/${name}.mp4"
+          done < ../scripts.list
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: videos
+          path: |
+            video-agent/output/final/
+            video-agent/output/*/storyboard.json
