@@ -1,0 +1,267 @@
+{
+  "name": "Script to Video (AI agent)",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Script → Video",
+        "formDescription": "Paste your script. The AI director plans the scenes, then a voiced, captioned video is rendered automatically. This usually takes 1–5 minutes - keep this tab open.",
+        "formFields": {
+          "values": [
+            {
+              "fieldName": "script",
+              "fieldLabel": "Script",
+              "fieldType": "textarea",
+              "requiredField": true,
+              "placeholder": "Write it the way you would say it. Blank lines between paragraphs = scene breaks."
+            },
+            {
+              "fieldName": "format",
+              "fieldLabel": "Format",
+              "fieldType": "dropdown",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "9:16 Reels / TikTok / Shorts"
+                  },
+                  {
+                    "option": "16:9 YouTube / website"
+                  },
+                  {
+                    "option": "1:1 Square feed post"
+                  },
+                  {
+                    "option": "4:5 Portrait feed post"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldName": "style",
+              "fieldLabel": "Style / brand notes (optional)",
+              "fieldType": "text",
+              "placeholder": "e.g. luxury bespoke fashion, warm gold and deep green, slow and elegant"
+            },
+            {
+              "fieldName": "voice",
+              "fieldLabel": "Voice",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "auto"
+                  },
+                  {
+                    "option": "elevenlabs"
+                  },
+                  {
+                    "option": "gtts"
+                  },
+                  {
+                    "option": "espeak"
+                  },
+                  {
+                    "option": "silent"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldName": "rewrite",
+              "fieldLabel": "Let the AI polish my wording?",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "No - keep my words"
+                  },
+                  {
+                    "option": "Yes - tighten it up"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldName": "music_url",
+              "fieldLabel": "Background music URL (optional)",
+              "fieldType": "text",
+              "placeholder": "https://.../track.mp3"
+            }
+          ]
+        },
+        "options": {
+          "path": "script-to-video",
+          "buttonLabel": "Make my video"
+        }
+      },
+      "name": "Script Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.4,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "5c1f6c1e-3b8e-4a43-9a51-2f7e3b0d9a01"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turn the form answers into a Claude \"AI director\" request.\nconst f = $input.first().json;\nconst SYSTEM = \"You are a video director. You receive a narration script and break it into a storyboard for an automatically produced voiceover video.\\n\\nRules:\\n- Keep the author's wording. Copy the script into `narration` scene by scene; only make light edits for speakability (expand abbreviations, fix obvious typos) unless the user explicitly asks for a rewrite.\\n- Drop stage directions, headings and notes like \\\"[music]\\\" or \\\"SCENE 1:\\\" from narration.\\n- Each scene should take 4-12 seconds to speak (roughly 10-30 words). Split long paragraphs.\\n- `stock_query`: 2-4 concrete, filmable words for a stock-footage search (e.g. \\\"tailor sewing fabric\\\", not \\\"craftsmanship\\\").\\n- `image_prompt`: one vivid sentence describing the ideal shot (subject, setting, lighting, camera), usable by an image generator. No text in the image.\\n- `on_screen_text`: a short punchy headline (max 6 words) for scenes that benefit from one - the opening, key points, and the call to action. Use an empty string otherwise.\\n- `mood`: one word (e.g. calm, energetic, luxurious, dramatic, warm).\\n- `title`: a short title for the whole video.\";\nconst SCHEMA = {\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"title\",\n    \"scenes\"\n  ],\n  \"properties\": {\n    \"title\": {\n      \"type\": \"string\"\n    },\n    \"scenes\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"object\",\n        \"additionalProperties\": false,\n        \"required\": [\n          \"narration\",\n          \"on_screen_text\",\n          \"stock_query\",\n          \"image_prompt\",\n          \"mood\"\n        ],\n        \"properties\": {\n          \"narration\": {\n            \"type\": \"string\"\n          },\n          \"on_screen_text\": {\n            \"type\": \"string\"\n          },\n          \"stock_query\": {\n            \"type\": \"string\"\n          },\n          \"image_prompt\": {\n            \"type\": \"string\"\n          },\n          \"mood\": {\n            \"type\": \"string\"\n          }\n        }\n      }\n    }\n  }\n};\n\nconst notes = [];\nif (f.style) notes.push(`Visual style / brand notes: ${f.style}`);\nif ((f.rewrite || '').startsWith('Yes')) notes.push('You MAY rewrite the narration to be tighter and more engaging.');\nconst content = [...notes, 'Script:', '<script>', String(f.script || '').trim(), '</script>'].join('\\n');\n\nreturn [{\n  json: {\n    form: {\n      script: f.script,\n      aspect: String(f.format || '9:16').split(' ')[0],\n      voice: f.voice || 'auto',\n      style: f.style || '',\n      music_url: f.music_url || '',\n    },\n    request: {\n      model: 'claude-opus-5-5',\n      max_tokens: 16000,\n      system: SYSTEM,\n      messages: [{ role: 'user', content }],\n      output_config: { effort: 'medium', format: { type: 'json_schema', schema: SCHEMA } },\n      fallbacks: 'default',\n    },\n  },\n}];\n"
+      },
+      "name": "Build Claude Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "anthropic-beta",
+              "value": "server-side-fallback-2026-07-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.request) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "name": "AI Director (Claude)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate Claude's storyboard and build the render request.\nconst res = $input.first().json;\nconst form = $('Build Claude Request').first().json.form;\n\nif (res.stop_reason === 'refusal') throw new Error('Claude declined to plan this script.');\nif (res.stop_reason === 'max_tokens') throw new Error('Storyboard was cut off - try a shorter script.');\nconst text = (res.content || []).filter(b => b.type === 'text').map(b => b.text).join('');\nconst storyboard = JSON.parse(text);\nif (!Array.isArray(storyboard.scenes) || storyboard.scenes.length === 0) {\n  throw new Error('Claude returned a storyboard with no scenes.');\n}\n\nconst render = { storyboard, aspect: form.aspect, voice: form.voice, style: form.style };\nif (form.music_url) render.music_url = form.music_url;\nreturn [{ json: { storyboard, render } }];\n"
+      },
+      "name": "Parse Storyboard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://renderer:8000/render",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.render) }}",
+        "options": {
+          "timeout": 1800000
+        }
+      },
+      "name": "Render Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ],
+      "notes": "Voiceover, visuals, captions and ffmpeg assembly run in the script2video render service."
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "showText",
+        "responseText": "=<div style=\"font-family:system-ui,sans-serif;max-width:720px;margin:0 auto;text-align:center\">\n<h2 style=\"margin-bottom:4px\">{{ $('Render Video').first().json.title }}</h2>\n<p style=\"color:#666;margin-top:0\">{{ $('Render Video').first().json.scenes }} scenes &middot; {{ $('Render Video').first().json.duration }} seconds</p>\n<video src=\"{{ $('Render Video').first().json.video_url }}\" controls playsinline style=\"max-width:100%;max-height:70vh;border-radius:12px;background:#000\"></video>\n<p><a href=\"{{ $('Render Video').first().json.video_url }}\" download>Download MP4</a> &nbsp;&middot;&nbsp; <a href=\"{{ $('Render Video').first().json.srt_url }}\" download>Download captions (.srt)</a></p>\n</div>"
+      },
+      "name": "Show Video",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.3,
+      "position": [
+        1200,
+        300
+      ],
+      "webhookId": "8d2a4f7b-6c0e-4b1f-9e2d-1a7c3b5e9f02"
+    }
+  ],
+  "connections": {
+    "Script Form": {
+      "main": [
+        [
+          {
+            "node": "Build Claude Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Claude Request": {
+      "main": [
+        [
+          {
+            "node": "AI Director (Claude)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Director (Claude)": {
+      "main": [
+        [
+          {
+            "node": "Parse Storyboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Storyboard": {
+      "main": [
+        [
+          {
+            "node": "Render Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Video": {
+      "main": [
+        [
+          {
+            "node": "Show Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

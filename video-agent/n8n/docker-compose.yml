@@ -1,0 +1,40 @@
+# n8n + the script2video render service, wired together.
+#
+#   cd video-agent/n8n
+#   cp .env.example .env        # add your keys
+#   docker compose up -d --build
+#
+# n8n:      http://localhost:5678
+# renderer: http://localhost:8000   (n8n reaches it as http://renderer:8000)
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - GENERIC_TIMEZONE=${TIMEZONE:-UTC}
+      - N8N_SECURE_COOKIE=false
+      - WEBHOOK_URL=${N8N_PUBLIC_URL:-http://localhost:5678/}
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - renderer
+
+  renderer:
+    build: ..
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PUBLIC_BASE_URL=${RENDERER_PUBLIC_URL:-http://localhost:8000}
+      - RENDER_TOKEN=${RENDER_TOKEN:-}
+      - PEXELS_API_KEY=${PEXELS_API_KEY:-}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID:-}
+    volumes:
+      - renderer_data:/data
+
+volumes:
+  n8n_data:
+  renderer_data:
