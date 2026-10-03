@@ -1,0 +1,68 @@
+SCRIPT TO VIDEO - AI agent for Sersi Couture
+============================================
+
+Paste a text script into a web form and get back a finished video with
+voiceover, visuals, captions and music.
+
+
+FIRST-TIME SETUP (about 15 minutes)
+-----------------------------------
+
+1. INSTALL DOCKER DESKTOP
+   https://www.docker.com/products/docker-desktop/
+   Install it, open it, and wait until it says "Engine running".
+
+2. START THE APP
+   Open the "n8n" folder inside this folder and double-click:
+     Windows:  start-windows.bat
+     Mac:      start-mac.command
+               (If the Mac says it can't open it: right-click the file,
+                choose Open, then click Open again.)
+   The first start downloads things and takes 5-10 minutes. When it's
+   ready, your browser opens n8n at http://localhost:5678
+
+3. SET UP n8n (only once)
+   a. Create your n8n account. It only exists on your PC.
+   b. Workflows -> "..." menu (top right) -> Import from File
+      -> choose  n8n/script-to-video.workflow.json
+   c. Double-click the "AI Director (Claude)" box
+      -> Credential -> Create new -> paste your Anthropic API key -> Save
+      (Get a key at https://console.anthropic.com -> API Keys.
+       Planning one video should cost a few cents.)
+   d. Switch the workflow ON with the toggle at the top right.
+   e. Double-click the "Script Form" box and copy the "Production URL".
+      Bookmark it - that is your video maker page.
+
+
+MAKING A VIDEO
+--------------
+Make sure Docker Desktop is open, then open your bookmarked form page.
+Paste your script, choose a format (9:16 = Reels/TikTok/Shorts,
+16:9 = YouTube) and click "Make my video". After 1-5 minutes the video
+appears with a "Download MP4" button.
+
+Writing tips: write the script exactly as it should be spoken. Leave a
+blank line between paragraphs - each paragraph becomes a scene.
+About 150 words = 1 minute of video.
+
+
+OPTIONAL UPGRADES
+-----------------
+Open the file  n8n/.env  with Notepad or TextEdit. It is created the first
+time you run the start file. If you can't see it, it may be hidden - on a
+Mac press Cmd+Shift+. to show hidden files.
+
+  PEXELS_API_KEY=      real stock video footage instead of colour cards
+                       (free key: https://www.pexels.com/api/)
+  ELEVENLABS_API_KEY=  natural studio voice (https://elevenlabs.io),
+                       then pick "elevenlabs" as the voice in the form
+
+Save the file and double-click the start file again.
+
+
+STOPPING
+--------
+Double-click  n8n/stop-windows.bat  or  n8n/stop-mac.command
+(or just quit Docker Desktop).
+
+More detail: README.md and n8n/README.md
