@@ -59,6 +59,15 @@ With no keys set it still works: the voiceover uses free Google TTS and the visu
 
 Each step caches its results in `output/<script-name>/`. If you edit one scene's narration or headline in `storyboard.json`, only that scene's audio and clip are rebuilt on the next run.
 
+## One prompt → AI-generated video (`film`)
+
+```bash
+export GEMINI_API_KEY=...     # Google Veo, or FAL_KEY=... for fal.ai
+python -m script2video.film "A baby explores a magical mossy forest at golden hour..." --seconds 40 --aspect 16:9
+```
+
+Claude plans the shots, the AI video model films them, and they're joined into one video. Use `--mode extend` (Veo) for a continuous long take with no cuts, or `--mode shots` for separate clips with crossfades. `--provider mock` makes free placeholder clips for testing.
+
 ## Run it from n8n
 
 `n8n/` contains an importable n8n workflow: a web form, then Claude as the AI director, then the render service, then a page showing the finished video. It also includes a `docker-compose.yml` that starts n8n and the render service together. See [n8n/README.md](n8n/README.md).

@@ -46,6 +46,22 @@ blank line between paragraphs - each paragraph becomes a scene.
 About 150 words = 1 minute of video.
 
 
+AI-GENERATED VIDEO FROM ONE PROMPT (second workflow)
+----------------------------------------------------
+Want the AI to create the footage itself (like Veo / Sora)? Import
+n8n/prompt-to-ai-video.workflow.json the same way (step 3b-3e: same
+Anthropic credential). Then add ONE video key to  n8n/.env :
+
+  GEMINI_API_KEY=   Google Veo - best, can do one continuous take with no
+                    cuts (https://aistudio.google.com/apikey, needs billing)
+  FAL_KEY=          fal.ai - many video models (https://fal.ai/dashboard/keys)
+
+Save, double-click the start file again, open the "Video Idea Form" link,
+describe your video, choose the length and click "Make my video".
+A 40-second video takes about 10-30 minutes and is paid per second by
+Google / fal.ai. Choose "mock" as the AI video model to test for free.
+
+
 OPTIONAL UPGRADES
 -----------------
 Open the file  n8n/.env  with Notepad or TextEdit. It is created the first

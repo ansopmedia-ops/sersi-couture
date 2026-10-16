@@ -15,12 +15,24 @@ POST /render   JSON body:
     draft         bool  half resolution, faster
   -> {"id", "title", "duration", "scenes", "video_url", "srt_url", "storyboard"}
 
-GET  /files/<id>/<video.mp4|video.srt|storyboard.json>
+POST /film     JSON body (AI-generated footage - starts a background job):
+    idea          str   the video prompt (required unless `plan` is given)
+    plan          obj   optional {"title", "character", "look", "shots": [{"action", "camera"}]}
+    seconds       num   target length (default 40)
+    aspect        str   16:9 | 9:16
+    provider      str   auto | veo | fal | mock
+    mode          str   auto | extend (continuous take, Veo) | shots (crossfaded clips)
+    music_url     str   optional background music
+  -> {"id", "status_url"}   then poll GET /jobs/<id>
+     -> {"status": "queued|running|done|error", "progress", "video_url", "title", "duration", "error"}
+
+GET  /files/<id>/<video.mp4|video.srt|storyboard.json|plan.json>
+GET  /jobs/<id>
 GET  /health
 
 Env: PORT, PUBLIC_BASE_URL (how browsers reach this service, default http://localhost:PORT),
      RENDER_TOKEN (if set, requests need "Authorization: Bearer <token>"), JOBS_DIR,
-     plus the usual ANTHROPIC_API_KEY / PEXELS_API_KEY / ELEVENLABS_API_KEY.
+     plus the usual ANTHROPIC_API_KEY / PEXELS_API_KEY / ELEVENLABS_API_KEY / GEMINI_API_KEY / FAL_KEY.
 """
 from __future__ import annotations
 
@@ -40,7 +52,8 @@ PORT = int(os.environ.get("PORT", "8000"))
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", f"http://localhost:{PORT}").rstrip("/")
 TOKEN = os.environ.get("RENDER_TOKEN", "")
 JOBS_DIR = Path(os.environ.get("JOBS_DIR", "jobs")).resolve()
-SERVED = {"video.mp4": "video/mp4", "video.srt": "application/x-subrip", "storyboard.json": "application/json"}
+SERVED = {"video.mp4": "video/mp4", "video.srt": "application/x-subrip", "storyboard.json": "application/json",
+          "plan.json": "application/json"}
 
 _render_lock = threading.Lock()  # one render at a time - ffmpeg already uses every core
 
@@ -75,13 +88,7 @@ def render(body: dict) -> dict:
     if body.get("captions") is False:
         argv.append("--no-captions")
     if body.get("music_url"):
-        import requests
-
-        music = job / "music"
-        r = requests.get(body["music_url"], timeout=120)
-        r.raise_for_status()
-        music.write_bytes(r.content)
-        argv += ["--music", str(music)]
+        argv += ["--music", str(_download_music(body["music_url"], job / "music"))]
 
     with _render_lock:
         log(f"job {job_id}: rendering")
@@ -98,6 +105,58 @@ def render(body: dict) -> dict:
         "srt_url": f"{base}/video.srt" if (job / "video.srt").exists() else None,
         "storyboard": board,
     }
+
+
+def _download_music(url: str, dest: Path) -> Path:
+    import requests
+
+    r = requests.get(url, timeout=120)
+    r.raise_for_status()
+    dest.write_bytes(r.content)
+    return dest
+
+
+_jobs: dict[str, dict] = {}
+_film_lock = threading.Lock()  # AI generation is slow and paid - run films one at a time
+
+
+def start_film(body: dict) -> dict:
+    from script2video.film import make_film
+
+    idea = (body.get("idea") or body.get("prompt") or "").strip()
+    plan = body.get("plan")
+    if isinstance(plan, str):
+        plan = json.loads(plan)
+    if not idea and not plan:
+        raise ValueError("Send an 'idea' (text prompt) or a 'plan' object.")
+    seconds = float(body.get("seconds", 40))
+    if not 4 <= seconds <= 140:
+        raise ValueError("seconds must be between 4 and 140")
+    job_id = uuid.uuid4().hex
+    job = JOBS_DIR / job_id
+    job.mkdir(parents=True)
+    state = _jobs[job_id] = {"id": job_id, "status": "queued", "progress": "Waiting to start"}
+
+    def work() -> None:
+        try:
+            with _film_lock:
+                state.update(status="running", progress="Starting")
+                music = _download_music(body["music_url"], job / "music") if body.get("music_url") else None
+                result = make_film(
+                    idea or plan.get("title", ""), seconds=seconds, aspect=body.get("aspect", "16:9"),
+                    provider_name=body.get("provider", "auto"), mode=body.get("mode", "auto"),
+                    workdir=job / "work", out=job / "video.mp4", plan_data=plan, music=music,
+                    progress=lambda msg: (state.update(progress=msg), log(f"film {job_id}: {msg}")),
+                )
+            (job / "plan.json").write_text(json.dumps(result["plan"], indent=2), encoding="utf-8")
+            state.update(status="done", progress="Finished", video_url=f"{PUBLIC_BASE_URL}/files/{job_id}/video.mp4",
+                         **{k: result[k] for k in ("title", "duration", "shots", "mode", "provider")})
+        except Exception as exc:  # noqa: BLE001
+            traceback.print_exc()
+            state.update(status="error", error=f"{type(exc).__name__}: {exc}")
+
+    threading.Thread(target=work, daemon=True).start()
+    return {"id": job_id, "status": "queued", "status_url": f"{PUBLIC_BASE_URL}/jobs/{job_id}"}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -121,6 +180,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         if self.path == "/health":
             return self._send(200, {"ok": True})
+        m = re.fullmatch(r"/jobs/([0-9a-f]{32})", self.path)
+        if m:
+            job = _jobs.get(m.group(1))
+            return self._send(200, job) if job else self._send(404, {"error": "unknown job"})
         m = re.fullmatch(r"/files/([0-9a-f]{32})/([a-z0-9.]+)", self.path)
         if not m or m.group(2) not in SERVED:
             return self._send(404, {"error": "not found"})
@@ -130,14 +193,14 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, body=path.read_bytes(), ctype=SERVED[m.group(2)])
 
     def do_POST(self) -> None:  # noqa: N802
-        if self.path != "/render":
+        if self.path not in ("/render", "/film"):
             return self._send(404, {"error": "not found"})
         if not self._authorized():
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
             body = json.loads(self.rfile.read(length) or b"{}")
-            self._send(200, render(body))
+            self._send(200, render(body) if self.path == "/render" else start_film(body))
         except (ValueError, KeyError, TypeError) as exc:
             self._send(400, {"error": str(exc)})
         except Exception as exc:  # noqa: BLE001

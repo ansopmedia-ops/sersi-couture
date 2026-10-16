@@ -1,0 +1,467 @@
+{
+  "name": "Prompt to AI Video (Veo / fal.ai)",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Prompt → AI Video",
+        "formDescription": "Describe the video. Claude plans the shots, an AI video model films them, and they are joined into one video. 40 seconds usually takes 10–30 minutes - keep this tab open.",
+        "formFields": {
+          "values": [
+            {
+              "fieldName": "idea",
+              "fieldLabel": "Video idea / prompt",
+              "fieldType": "textarea",
+              "requiredField": true,
+              "placeholder": "e.g. A 1-year-old baby in a yellow sweater explores a magical mossy forest at golden hour..."
+            },
+            {
+              "fieldName": "seconds",
+              "fieldLabel": "Length (seconds)",
+              "fieldType": "dropdown",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "8"
+                  },
+                  {
+                    "option": "15"
+                  },
+                  {
+                    "option": "22"
+                  },
+                  {
+                    "option": "29"
+                  },
+                  {
+                    "option": "40"
+                  },
+                  {
+                    "option": "50"
+                  },
+                  {
+                    "option": "60"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldName": "format",
+              "fieldLabel": "Format",
+              "fieldType": "dropdown",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "16:9 Landscape (YouTube)"
+                  },
+                  {
+                    "option": "9:16 Vertical (Reels / TikTok / Shorts)"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldName": "style",
+              "fieldLabel": "Editing style",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Continuous long take - no cuts (Google Veo)"
+                  },
+                  {
+                    "option": "Separate shots joined with crossfades"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldName": "provider",
+              "fieldLabel": "AI video model",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "auto"
+                  },
+                  {
+                    "option": "veo"
+                  },
+                  {
+                    "option": "fal"
+                  },
+                  {
+                    "option": "mock"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldName": "music_url",
+              "fieldLabel": "Background music URL (optional)",
+              "fieldType": "text",
+              "placeholder": "https://.../track.mp3"
+            }
+          ]
+        },
+        "options": {
+          "path": "prompt-to-video",
+          "buttonLabel": "Make my video"
+        }
+      },
+      "name": "Video Idea Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.4,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "a3e1c0de-7f2b-4c11-9d6e-5b8f0c2a7e11"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Work out how many shots are needed and ask Claude to plan them.\nconst f = $input.first().json;\nconst SYSTEM = \"You are a film director preparing prompts for an AI text-to-video model that can only generate a few seconds at a time. Break the user's idea into exactly the requested number of consecutive shots that together tell the whole idea in order.\\n\\n- `character`: one precise, reusable description of every recurring subject (age, clothing, colours, hair, props). It is pasted into every shot prompt so the subject looks identical in each clip - be specific.\\n- `look`: one reusable description of setting, lighting, colour palette, lens and style (e.g. \\\"photorealistic, warm golden-hour light, shallow depth of field, 35mm\\\").\\n- Each shot: `action` is what visibly happens in that clip, written so it can be filmed in the given number of seconds (one or two simple actions, no time jumps). `camera` is the camera movement.\\n- In continuous mode every shot must pick up exactly where the previous one ended (same place, same moment, no cuts). In shots mode each shot may reframe but should still flow naturally.\\n- Do not write on-screen text, captions, logos or dialogue unless the user asks for them.\\n- `title`: a short title.\";\nconst SCHEMA = {\n  \"type\": \"object\",\n  \"additionalProperties\": false,\n  \"required\": [\n    \"title\",\n    \"character\",\n    \"look\",\n    \"shots\"\n  ],\n  \"properties\": {\n    \"title\": {\n      \"type\": \"string\"\n    },\n    \"character\": {\n      \"type\": \"string\"\n    },\n    \"look\": {\n      \"type\": \"string\"\n    },\n    \"shots\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"object\",\n        \"additionalProperties\": false,\n        \"required\": [\n          \"action\",\n          \"camera\"\n        ],\n        \"properties\": {\n          \"action\": {\n            \"type\": \"string\"\n          },\n          \"camera\": {\n            \"type\": \"string\"\n          }\n        }\n      }\n    }\n  }\n};\n\nconst seconds = parseInt(String(f.seconds || '40'), 10);\nconst aspect = String(f.format || '16:9').split(' ')[0];\nconst provider = f.provider || 'auto';\n// \"Continuous\" needs Veo's extend feature; fal.ai always uses separate shots.\nconst mode = provider === 'fal' || String(f.style || '').startsWith('Separate') ? 'shots' : 'extend';\nconst shots = mode === 'extend'\n  ? 1 + Math.max(0, Math.ceil((seconds - 8) / 7))       // 8 s clip + 7 s extensions\n  : Math.max(1, Math.ceil((seconds - 0.6) / (8 - 0.6)));  // 8 s clips joined with crossfades\n\nconst modeText = mode === 'extend'\n  ? 'continuous mode (one uninterrupted take, no cuts)'\n  : 'shots mode (separate clips joined with short crossfades)';\nconst content = `Number of shots: ${shots}\\nSeconds per shot: about 8\\nMode: ${modeText}\\n\\n<idea>\\n${String(f.idea || '').trim()}\\n</idea>`;\n\nreturn [{\n  json: {\n    job: { idea: f.idea, seconds, aspect, provider, mode, music_url: f.music_url || '' },\n    request: {\n      model: 'claude-opus-5-5',\n      max_tokens: 16000,\n      system: SYSTEM,\n      messages: [{ role: 'user', content }],\n      output_config: { effort: 'medium', format: { type: 'json_schema', schema: SCHEMA } },\n      fallbacks: 'default',\n    },\n  },\n}];\n"
+      },
+      "name": "Build Claude Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "anthropic-beta",
+              "value": "server-side-fallback-2026-07-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.request) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "name": "AI Director (Claude)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check Claude's shot plan and build the video job.\nconst res = $input.first().json;\nconst job = $('Build Claude Request').first().json.job;\n\nif (res.stop_reason === 'refusal') throw new Error('Claude declined to plan this video.');\nif (res.stop_reason === 'max_tokens') throw new Error('The shot plan was cut off - try a shorter idea.');\nconst text = (res.content || []).filter(b => b.type === 'text').map(b => b.text).join('');\nconst plan = JSON.parse(text);\nif (!Array.isArray(plan.shots) || plan.shots.length === 0) throw new Error('Claude returned no shots.');\n\nconst body = { ...job, plan };\nif (!body.music_url) delete body.music_url;\nreturn [{ json: body }];\n"
+      },
+      "name": "Parse Shot Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://renderer:8000/film",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "name": "Start Video Job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ],
+      "notes": "The render service generates every shot with the AI video model and joins them."
+    },
+    {
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 20,
+        "unit": "seconds"
+      },
+      "name": "Wait 20s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        300
+      ],
+      "webhookId": "c4b2e9f1-1d3a-4e5f-8a6b-7c9d0e1f2a33"
+    },
+    {
+      "parameters": {
+        "url": "=http://renderer:8000/jobs/{{ $('Start Video Job').first().json.id }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "name": "Check Progress",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "done-status",
+              "leftValue": "={{ $('Check Progress').first().json.status }}",
+              "rightValue": "done",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Finished?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "error-status",
+              "leftValue": "={{ $('Check Progress').first().json.status }}",
+              "rightValue": "error",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1920,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "showText",
+        "responseText": "=<div style=\"font-family:system-ui,sans-serif;max-width:860px;margin:0 auto;text-align:center\">\n<h2 style=\"margin-bottom:4px\">{{ $('Check Progress').first().json.title }}</h2>\n<p style=\"color:#666;margin-top:0\">{{ $('Check Progress').first().json.duration }} seconds &middot; {{ $('Check Progress').first().json.shots }} shots &middot; {{ $('Check Progress').first().json.mode === 'extend' ? 'continuous take' : 'crossfaded shots' }} &middot; {{ $('Check Progress').first().json.provider }}</p>\n<video src=\"{{ $('Check Progress').first().json.video_url }}\" controls playsinline style=\"max-width:100%;max-height:70vh;border-radius:12px;background:#000\"></video>\n<p><a href=\"{{ $('Check Progress').first().json.video_url }}\" download>Download MP4</a></p>\n</div>"
+      },
+      "name": "Show Video",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.3,
+      "position": [
+        1920,
+        180
+      ],
+      "webhookId": "d5c3f0a2-2e4b-4f60-9b7c-8d0e1f2a3b44"
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "showText",
+        "responseText": "=<div style=\"font-family:system-ui,sans-serif;max-width:640px;margin:0 auto;text-align:center\">\n<h2>The video could not be made</h2>\n<p style=\"color:#a33\">{{ $('Check Progress').first().json.error }}</p>\n<p style=\"color:#666\">Nothing more will be generated for this request. Check the API key / settings and submit the form again.</p>\n</div>"
+      },
+      "name": "Show Error",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.3,
+      "position": [
+        2160,
+        340
+      ],
+      "webhookId": "e6d4a1b3-3f5c-4a71-8c8d-9e1f2a3b4c55"
+    },
+    {
+      "parameters": {
+        "content": "## Prompt → AI Video\nForm → Claude plans the shots → the render service generates them with Google Veo or fal.ai and joins them → n8n checks progress every 20 s → the finished video is shown in the form.\n\nNeeds: an **Anthropic** credential on *AI Director (Claude)*, and `GEMINI_API_KEY` or `FAL_KEY` in the render service's `.env`. Pick **mock** in the form to test everything for free.",
+        "height": 220,
+        "width": 520
+      },
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        20
+      ]
+    }
+  ],
+  "connections": {
+    "Video Idea Form": {
+      "main": [
+        [
+          {
+            "node": "Build Claude Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Claude Request": {
+      "main": [
+        [
+          {
+            "node": "AI Director (Claude)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Director (Claude)": {
+      "main": [
+        [
+          {
+            "node": "Parse Shot Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Shot Plan": {
+      "main": [
+        [
+          {
+            "node": "Start Video Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Video Job": {
+      "main": [
+        [
+          {
+            "node": "Wait 20s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 20s": {
+      "main": [
+        [
+          {
+            "node": "Check Progress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Progress": {
+      "main": [
+        [
+          {
+            "node": "Finished?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finished?": {
+      "main": [
+        [
+          {
+            "node": "Show Video",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Failed?": {
+      "main": [
+        [
+          {
+            "node": "Show Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 20s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

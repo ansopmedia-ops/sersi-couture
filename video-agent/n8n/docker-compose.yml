@@ -32,6 +32,12 @@ services:
       - PEXELS_API_KEY=${PEXELS_API_KEY:-}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
       - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - VEO_MODEL=${VEO_MODEL:-veo-3.1-generate-preview}
+      - VEO_PERSON_GENERATION=${VEO_PERSON_GENERATION:-}
+      - FAL_KEY=${FAL_KEY:-}
+      - FAL_MODEL=${FAL_MODEL:-fal-ai/veo3.1}
     volumes:
       - renderer_data:/data
 

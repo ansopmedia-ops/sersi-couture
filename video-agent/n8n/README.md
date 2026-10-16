@@ -10,6 +10,33 @@ This is an n8n workflow that turns a script you paste into a form into a finishe
 
 n8n can't run ffmpeg itself, so the heavy work (voiceover, footage, captions, assembly) happens in a small companion **render service** (`../server.py`). n8n calls it over HTTP. Claude, the AI director, is called straight from n8n, so you can see and edit the prompt in the **Build Claude Request** node.
 
+## Second workflow: Prompt → AI Video
+
+`prompt-to-ai-video.workflow.json` makes the **footage itself** with an AI video model, starting from one prompt such as "a baby explores a magical mossy forest...":
+
+```
+[Video Idea Form] → [Build Claude Request] → [AI Director (Claude)] → [Parse Shot Plan] → [Start Video Job]
+                                                                                              ↓
+                       [Show Video] ← yes ← [Finished?] ← [Check Progress] ← [Wait 20s] ←──┐
+                       [Show Error] ← yes ← [Failed?] ─── no ─────────────────────────────┘
+```
+
+- **Claude** splits the idea into shots. It writes one fixed description of the main character and one of the look, and repeats both in every shot so the subject stays consistent.
+- **Continuous long take** (Google Veo): an 8-second first clip, then 7-second *extensions* of that same clip. You get one unbroken shot of up to about 2 minutes.
+- **Separate shots** (Veo or any fal.ai model): 8-second clips joined with soft crossfades.
+- n8n checks progress every 20 seconds and shows the video when it's finished. A 40-second video usually takes 10–30 minutes.
+
+Setup is the same as below. Import the second file too and add the same Anthropic credential. Then put **one** of these in `.env` and run the start file again:
+
+| Key | Get it at | Notes |
+|---|---|---|
+| `GEMINI_API_KEY` | aistudio.google.com/apikey | Google Veo 3.1; enables continuous takes. Billing must be enabled |
+| `FAL_KEY` | fal.ai/dashboard/keys | One key for many models; choose one with `FAL_MODEL` (default `fal-ai/veo3.1`) |
+
+AI video generation is **paid per second of video**, and a 40-second video costs real money (check the provider's current prices). Choose **mock** as the AI video model in the form to test the whole workflow for free with placeholder clips.
+
+In the EU, UK or Switzerland, Google only allows videos of adults, so set `VEO_PERSON_GENERATION=allow_adult`. Prompts with children may be refused there.
+
 ## Option 1: Run everything on your own computer or server with Docker (recommended)
 
 You need [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed.
